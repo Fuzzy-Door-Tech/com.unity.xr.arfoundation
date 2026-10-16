@@ -2,6 +2,9 @@
 
 using System;
 using System.Text;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
@@ -23,37 +26,55 @@ namespace UnityEditor.XR.ARFoundation.VisualScripting
         where TTrackable : ARTrackable
         where TListener : MessageListener
     {
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static readonly StringBuilder s_Builder = new();
 
         /// <summary>
         /// The unit description.
         /// </summary>
         protected virtual string unitDescription => s_UnitDescription;
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static string s_UnitDescription;
 
         /// <summary>
         /// The Target port description.
         /// </summary>
         protected virtual string targetPortDescription => s_TargetPortDescription;
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static string s_TargetPortDescription;
 
         /// <summary>
         /// The Added port description.
         /// </summary>
         protected virtual string addedPortDescription => s_AddedPortDescription;
-        static string s_AddedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been added.";
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
+        static readonly string s_AddedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been added.";
 
         /// <summary>
         /// The Updated port description.
         /// </summary>
         protected virtual string updatedPortDescription => s_UpdatedPortDescription;
-        static string s_UpdatedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been updated.";
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
+        static readonly string s_UpdatedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been updated.";
 
         /// <summary>
         /// The Removed port description.
         /// </summary>
         protected virtual string removedPortDescription => s_RemovedPortDescription;
-        static string s_RemovedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been removed.";
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
+        static readonly string s_RemovedPortDescription = $"{typeof(TTrackable).DisplayName()}s that have been removed.";
 
         /// <inheritdoc/>
         protected ARTrackablesChangedEventUnitDescriptor(

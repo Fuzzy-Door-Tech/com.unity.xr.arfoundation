@@ -1,6 +1,9 @@
 #if VISUALSCRIPTING_1_8_OR_NEWER
 
 using System;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 
 namespace UnityEngine.XR.ARFoundation.VisualScripting
@@ -14,6 +17,9 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
     {
         ARFace m_Face;
 
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static readonly Type k_HookNameKey = typeof(ARFaceUpdatedEventArgs);
 
         void OnFaceUpdated(ARFaceUpdatedEventArgs args)

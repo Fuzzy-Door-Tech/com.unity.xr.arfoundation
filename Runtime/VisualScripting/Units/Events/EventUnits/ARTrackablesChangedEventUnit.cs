@@ -2,6 +2,9 @@
 
 using System;
 using System.Collections.Generic;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 using Unity.XR.CoreUtils.Collections;
 using UnityEngine.XR.ARSubsystems;
@@ -20,6 +23,9 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
         where TTrackable : ARTrackable
         where TListener : MessageListener
     {
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static readonly Type k_HookNameKey = typeof(ARTrackablesChangedEventArgs<TTrackable>);
 
         /// <summary>

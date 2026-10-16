@@ -1,6 +1,9 @@
 #if VISUALSCRIPTING_1_8_OR_NEWER
 
 using System;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 
 namespace UnityEngine.XR.ARFoundation.VisualScripting
@@ -15,7 +18,13 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
     [TypeIcon(typeof(ARSession))]
     public sealed class SessionStateChangedEventUnit : GlobalEventUnit<ARSessionState>
     {
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static bool s_CallbackIsRegistered;
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static readonly Type k_HookNameKey = typeof(ARSessionStateChangedEventArgs);
 
         /// <summary>
@@ -77,6 +86,16 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
         protected override void AssignArguments(Flow flow, ARSessionState state)
         {
             flow.SetValue(sessionStateOut, state);
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void ResetStaticsOnLoad()
+        {
+            if (s_CallbackIsRegistered)
+            {
+                ARSession.stateChanged -= HandleStateChange;
+                s_CallbackIsRegistered = false;
+            }
         }
     }
 }

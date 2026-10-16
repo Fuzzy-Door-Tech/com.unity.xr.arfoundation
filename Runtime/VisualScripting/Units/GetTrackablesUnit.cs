@@ -3,6 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 using UnityEngine.SubsystemsImplementation;
 using UnityEngine.XR.ARSubsystems;
@@ -37,9 +40,17 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
         // Used by GetTrackablesUnitDescriptor in the Editor assembly
         internal const string k_TrackablesInPortLabel = "List";
 
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static bool s_IsFirstFrame = true;
 
         StringBuilder m_LogBuilder = new();
+
+        static GetTrackablesUnit()
+        {
+            ResetStaticsUtility.AddResetCallback(ResetStaticsOnLoad);
+        }
 
         /// <summary>
         /// Flow input.
@@ -137,6 +148,11 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
 
             flow.SetValue(trackablesOut, trackables);
             return flowOut;
+        }
+
+        static void ResetStaticsOnLoad()
+        {
+            s_IsFirstFrame = true;
         }
     }
 }

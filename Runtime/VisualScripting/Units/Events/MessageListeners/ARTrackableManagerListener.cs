@@ -2,6 +2,9 @@
 
 using System;
 using System.Text;
+#if UNITY_6000_5_OR_NEWER
+using Unity.Scripting.LifecycleManagement;
+#endif
 using Unity.VisualScripting;
 
 namespace UnityEngine.XR.ARFoundation.VisualScripting
@@ -21,6 +24,9 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
         TManager m_Manager;
         StringBuilder m_LogBuilder = new();
 
+#if UNITY_6000_5_OR_NEWER
+        [NoAutoStaticsCleanup]
+#endif
         static readonly Type k_HookNameKey = typeof(ARTrackablesChangedEventArgs<TTrackable>);
 
         void OnEnable()

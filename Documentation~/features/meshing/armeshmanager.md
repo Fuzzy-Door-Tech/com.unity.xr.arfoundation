@@ -72,3 +72,10 @@ To avoid blocking the main thread, the tasks of converting the device mesh into 
 
 In AR Foundation 6.4 and newer, you can enable mesh classification on supported platforms. To learn more, refer to [Mesh classification](xref:arfoundation-meshing-classification).
 
+<a id="bounding-volume"></a>
+
+## Bounding volume
+
+The **Position** and **Scale** properties of the Transform component on the GameObject that contains your AR Mesh Manager define a bounding volume. On platforms that support bounding volumes, the provider doesn't track meshes outside the volume. The volume is axis-aligned to the parent GameObject's space, so the Transform's **Rotation** property has no effect.
+
+AR Foundation passes these values to [`XRMeshSubsystem.SetBoundingVolume`](xref:UnityEngine.XR.XRMeshSubsystem.SetBoundingVolume), and each provider interprets them. On Android XR, **Scale** sets the full size of the volume along each axis, not the distance from its center to each face. For other platforms, refer to your provider's documentation.

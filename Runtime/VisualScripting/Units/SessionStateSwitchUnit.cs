@@ -113,9 +113,11 @@ namespace UnityEngine.XR.ARFoundation.VisualScripting
             {
                 ARSessionState.None => none,
                 ARSessionState.Unsupported => unsupported,
+#pragma warning disable CS0618
                 ARSessionState.CheckingAvailability => checkingAvailability,
                 ARSessionState.NeedsInstall => needsInstall,
                 ARSessionState.Installing => installing,
+#pragma warning restore CS0618
                 ARSessionState.Ready => ready,
                 ARSessionState.SessionInitializing => sessionInitializing,
                 ARSessionState.SessionTracking => sessionTracking,
