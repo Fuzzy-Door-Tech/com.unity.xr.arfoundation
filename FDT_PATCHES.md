@@ -1,5 +1,6 @@
 Authored by GPT-6 at the request of @genereddick.
-- Co-authored by GPT-6.
+- Co-authored by GPT-6. Simulation implementation.
+- Co-authored by GPT-6. Independent review.
 
 # FDT AR Foundation patches
 

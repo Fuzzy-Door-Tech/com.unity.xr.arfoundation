@@ -226,7 +226,8 @@ namespace UnityEngine.XR.Simulation
 
             void OnSceneLoaded(Scene scene, LoadSceneMode mode)
             {
-                if (m_Initialized && !m_RebuildingEnvironment && !HasLiveEnvironment())
+                // FDT patch: Stop can unsubscribe during an earlier listener in this same event dispatch.
+                if (m_ObservingScenes && m_Initialized && !m_RebuildingEnvironment && !HasLiveEnvironment())
                     RebuildEnvironment();
             }
 

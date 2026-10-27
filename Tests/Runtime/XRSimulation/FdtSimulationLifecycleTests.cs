@@ -8,6 +8,7 @@ using Unity.XR.CoreUtils;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine.SceneManagement;
+using UnityEngine.Events;
 using UnityEngine.TestTools;
 using UnityEngine.XR.ARSubsystems;
 
@@ -118,7 +119,35 @@ namespace UnityEngine.XR.Simulation.Tests
             yield return CheckDiscoveryReplacement(true);
         }
 
-        IEnumerator CheckDiscoveryReplacement(bool stopDuringLoad)
+        [UnityTest]
+        public IEnumerator DiscoveryResume_ReissuesUndeliveredReplacementAdditions()
+        {
+            yield return CheckDiscoveryReplacement(false, true);
+        }
+
+        [UnityTest]
+        public IEnumerator StopFromEarlierSceneLoadedListener_DoesNotRebuildTheStoppedSession()
+        {
+            m_Session.Stop();
+            UnityAction<Scene, LoadSceneMode> stop = (scene, mode) => m_Session.Stop();
+            SceneManager.sceneLoaded += stop;
+            m_Session.Start();
+            FdtSimulationPlaneStartProbe.StartPlanes = false;
+            try
+            {
+                yield return Load(LoadSceneMode.Single);
+                Assert.That(m_Session.running, Is.False);
+                Assert.That(SimulationSessionSubsystem.simulationSceneManager.simulationEnvironment == null, Is.True,
+                    "An in-flight callback must honor Stop rather than rebuild and restart its scanner.");
+            }
+            finally
+            {
+                SceneManager.sceneLoaded -= stop;
+                m_Session.Start();
+            }
+        }
+
+        IEnumerator CheckDiscoveryReplacement(bool stopDuringLoad, bool pausePendingImage = false)
         {
             var origin = Object.FindAnyObjectByType<XROrigin>();
             origin.Camera.GetComponent<UnityEngine.InputSystem.XR.TrackedPoseDriver>().enabled = false;
@@ -162,6 +191,11 @@ namespace UnityEngine.XR.Simulation.Tests
             {
                 images.Start();
                 boxes.Start();
+            }
+            if (pausePendingImage)
+            {
+                images.Stop();
+                images.Start();
             }
             var removedImages = new HashSet<TrackableId>();
             var removedBoxes = new HashSet<TrackableId>();

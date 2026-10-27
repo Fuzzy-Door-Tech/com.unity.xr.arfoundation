@@ -60,6 +60,9 @@ namespace UnityEngine.XR.Simulation
                 var image = m_ImageDeliveries[i];
                 if (!image.pendingAdd)
                     continue;
+                // FDT patch: resume must re-add a discarded identity that no consumer received.
+                if (!delivered && !image.delivered)
+                    m_TrackingStatesOfImages[i] = TrackingState.None;
                 image.delivered |= delivered;
                 image.pendingAdd = false;
                 m_ImageDeliveries[i] = image;
