@@ -71,8 +71,11 @@ namespace UnityEngine.XR.Simulation
 
             m_PreviousCameraPose = m_SimulationCameraTransform.GetWorldPose();
 
-            m_Normals = new NativeArray<Vector3>(m_EnvironmentScanParams.raysPerCast, Allocator.Persistent);
-            m_Points = new NativeArray<Vector3>(m_EnvironmentScanParams.raysPerCast, Allocator.Persistent);
+            // FDT patch: scene replacement reuses this scanner because running providers cache its identity.
+            NativeArrayUtils.EnsureCapacity(ref m_Normals, m_EnvironmentScanParams.raysPerCast, Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory);
+            NativeArrayUtils.EnsureCapacity(ref m_Points, m_EnvironmentScanParams.raysPerCast, Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory);
 
             if (m_MeshCollidersRequested)
             {
@@ -81,6 +84,19 @@ namespace UnityEngine.XR.Simulation
             }
 
             m_Initialized = true;
+        }
+
+        // FDT patch: invalidate only the lost environment, retaining native storage and registered consumers.
+        internal void PrepareForEnvironmentChange()
+        {
+            Stop();
+            m_Initialized = false;
+            m_PointCount = 0;
+            m_LastScanTime = 0f;
+            m_EnvironmentRoot = null;
+            m_PhysicsScene = default;
+            m_MeshCollidersRequested |= m_MeshCollidersCreated || m_TrackingSubsystems.Count > 0;
+            m_MeshCollidersCreated = false;
         }
 
         public void Start()

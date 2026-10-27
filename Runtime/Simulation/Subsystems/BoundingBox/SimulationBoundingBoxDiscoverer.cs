@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using System.Threading;
+// FDT patch: distinguish replacement environment objects from an ordinary session reset.
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARSubsystems;
 using static UnityEngine.XR.Simulation.SimulationUtils;
 
@@ -42,11 +44,25 @@ namespace UnityEngine.XR.Simulation
 
         CancellationTokenSource m_UpdateCancellationTokenSource;
 
+        // FDT patch: scene identity and delayed restart generation survive Unity component destruction.
+        Scene m_EnvironmentScene;
+        int m_UpdateGeneration;
+
         public void Start()
         {
+            // FDT patch: a previously initialized, stopped provider can miss the session's environment-reset event.
+            if (m_Initialized && m_EnvironmentScene != SimulationSessionSubsystem.simulationSceneManager.environmentScene)
+            {
+                PrepareForEnvironmentChange();
+                Initialize();
+                return;
+            }
             if (!m_Initialized)
             {
                 BaseSimulationSceneManager.environmentSetupFinished += Initialize;
+                // FDT patch: the event invokes immediately before adding when the environment already exists.
+                if (m_Initialized)
+                    BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
                 return;
             }
 
@@ -55,15 +71,21 @@ namespace UnityEngine.XR.Simulation
 
         public void Stop()
         {
+            m_UpdateGeneration++; // FDT patch: invalidate pending delayed restarts too.
             BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
 
             m_NumAdded = 0;
-            m_NumRemoved = 0;
+            // FDT patch: queued replacement removals remain owned until GetChanges consumes them.
 
             if (!m_IsRunning)
                 return;
 
             m_UpdateCancellationTokenSource?.Cancel();
+
+            // FDT patch: old queued removals can coexist with this environment's final removals.
+            var capacity = m_NumRemoved + m_BoundingBoxesInScene.Count;
+            if (m_Removed.Length < capacity)
+                Array.Resize(ref m_Removed, capacity);
 
             for (var i = 0; i < m_BoundingBoxesInScene.Count; i++)
             {
@@ -87,6 +109,14 @@ namespace UnityEngine.XR.Simulation
         {
             if (!m_Initialized)
                 return;
+
+            // FDT patch: a replacement scene requires new objects and removals for the old delivered value identities.
+            if (m_EnvironmentScene != SimulationSessionSubsystem.simulationSceneManager.environmentScene)
+            {
+                PrepareForEnvironmentChange();
+                Initialize();
+                return;
+            }
 
             if (m_IsRunning)
                 Stop();
@@ -124,14 +154,19 @@ namespace UnityEngine.XR.Simulation
         /// </summary>
         async void BeginUpdateLoopAfterDelay()
         {
+            var generation = m_UpdateGeneration; // FDT patch: keep the existing grace tied to one discovery lifetime.
             await RunWithoutCancellationExceptions(
                 Awaitable.WaitForSecondsAsync(m_TrackingUpdateIntervalSeconds, CancellationToken.None));
 
-            BeginUpdateLoop();
+            if (generation == m_UpdateGeneration && !m_IsRunning)
+                BeginUpdateLoop();
         }
 
         void Initialize()
         {
+            // FDT patch: Reset must capture old value IDs before replacement setup can overwrite the object lists.
+            BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
+            m_UpdateGeneration++; // FDT patch: replacement invalidates a previously queued restart.
             if (m_IsRunning)
                 Stop();
 
@@ -148,6 +183,8 @@ namespace UnityEngine.XR.Simulation
 
             if (!simPhysicsScene.IsValid())
                 throw new InvalidOperationException("The physics scene loaded for simulation is not valid.");
+
+            m_EnvironmentScene = simScene; // FDT patch: retain the environment incarnation used by these objects.
 
             m_TrackingUpdateIntervalSeconds = XRSimulationRuntimeSettings.Instance.boundingBoxDiscoveryParams.trackingUpdateInterval;
 
@@ -169,8 +206,39 @@ namespace UnityEngine.XR.Simulation
             m_NumAdded = 0;
             m_Updated = new Dictionary<TrackableId, XRBoundingBox>(numBoundingBoxes);
             m_UpdatedCopyBuffer = new XRBoundingBox[numBoundingBoxes];
-            m_Removed = new TrackableId[numBoundingBoxes];
-            m_NumRemoved = 0;
+            // FDT patch: retain queued removals until the persistent AR manager consumes them.
+            if (m_Removed == null)
+                m_Removed = new TrackableId[numBoundingBoxes];
+            else if (m_Removed.Length < numBoundingBoxes)
+                Array.Resize(ref m_Removed, numBoundingBoxes);
+        }
+
+        // FDT patch: old components may already be destroyed; use retained value IDs, not component properties.
+        void PrepareForEnvironmentChange()
+        {
+            m_UpdateGeneration++;
+            BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
+            if (m_IsRunning)
+                m_UpdateCancellationTokenSource?.Cancel();
+            m_IsRunning = false;
+            var capacity = m_NumRemoved + m_AllBoundingBoxes.Count;
+            if (m_Removed.Length < capacity)
+                Array.Resize(ref m_Removed, capacity);
+            foreach (var pair in m_AllBoundingBoxes)
+            {
+                var pending = false;
+                for (var i = 0; i < m_NumAdded; i++)
+                    if (m_Added[i].trackableId == pair.Key)
+                    {
+                        pending = true;
+                        break;
+                    }
+                if (!pending)
+                    AppendRemoval(pair.Key);
+            }
+            m_NumAdded = 0;
+            m_Updated.Clear();
+            m_AllBoundingBoxes.Clear();
         }
 
         async Awaitable UpdateTracking(CancellationToken cancellationToken)
@@ -259,8 +327,20 @@ namespace UnityEngine.XR.Simulation
         void SubsystemRemoveBoundingBoxAtIndex(int boxIndex)
         {
             var boundingBox = m_BoundingBoxesInScene[boxIndex];
-            m_Removed[m_NumRemoved++] = boundingBox.trackableId;
+            // FDT patch: a Single load can destroy the component before its provider receives the scene reset.
+            if (boundingBox == null)
+                return;
+            AppendRemoval(boundingBox.trackableId); // FDT patch: do not deliver the same queued removal twice.
             m_AllBoundingBoxes.Remove(boundingBox.trackableId);
+        }
+
+        // FDT patch: rapid Stop/Start or scene replacement must not duplicate an undelivered removal.
+        void AppendRemoval(TrackableId id)
+        {
+            for (var i = 0; i < m_NumRemoved; i++)
+                if (m_Removed[i] == id)
+                    return;
+            m_Removed[m_NumRemoved++] = id;
         }
 
         static XRBoundingBox CreateXRBoundingBox(SimulatedBoundingBox boundingBox, TrackingState boundingBoxState)

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Unity.XR.CoreUtils;
+// FDT patch: distinguish a replacement environment from a reset within the same scene.
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARSubsystems;
 using static UnityEngine.XR.Simulation.SimulationUtils;
 
@@ -25,6 +27,47 @@ namespace UnityEngine.XR.Simulation
         readonly List<SimulatedTrackedImage> m_ImagesInScene = new();
         readonly List<TrackingState> m_TrackingStatesOfImages = new();
         readonly List<XRReferenceImage?> m_ReferenceImagesForImages = new();
+
+        // FDT patch: retain value identities after Unity destroys the environment's components.
+        struct ImageDelivery
+        {
+            internal TrackableId id;
+            internal bool pendingAdd;
+            internal bool delivered;
+        }
+        readonly List<ImageDelivery> m_ImageDeliveries = new();
+        Scene m_EnvironmentScene;
+        int m_UpdateGeneration;
+        internal bool environmentChanged => m_Initialized &&
+            m_EnvironmentScene != SimulationSessionSubsystem.simulationSceneManager.environmentScene;
+
+        internal int CopyDeliveredImageIds(TrackableId[] destination, int offset)
+        {
+            for (var i = 0; i < m_ImageDeliveries.Count; i++)
+            {
+                var image = m_ImageDeliveries[i];
+                if (image.delivered)
+                    destination[offset++] = image.id;
+            }
+            return offset;
+        }
+
+        // FDT patch: only GetChanges delivers an addition; tracking state alone does not establish consumer ownership.
+        internal void FinishPendingImageAdditions(bool delivered)
+        {
+            for (var i = 0; i < m_ImageDeliveries.Count; i++)
+            {
+                var image = m_ImageDeliveries[i];
+                if (!image.pendingAdd)
+                    continue;
+                // FDT patch: resume must re-add a discarded identity that no consumer received.
+                if (!delivered && !image.delivered)
+                    m_TrackingStatesOfImages[i] = TrackingState.None;
+                image.delivered |= delivered;
+                image.pendingAdd = false;
+                m_ImageDeliveries[i] = image;
+            }
+        }
 
         /// <summary>
         /// This property allows for a class to override the ITrackedImageDiscoveryParams to use
@@ -64,6 +107,9 @@ namespace UnityEngine.XR.Simulation
             if (!m_Initialized)
             {
                 BaseSimulationSceneManager.environmentSetupFinished += Initialize;
+                // FDT patch: the event invokes immediately before adding when the environment already exists.
+                if (m_Initialized)
+                    BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
                 return;
             }
 
@@ -72,6 +118,8 @@ namespace UnityEngine.XR.Simulation
 
         public void Stop()
         {
+            // FDT patch: an old delayed restart must not revive discovery after stop/replacement.
+            m_UpdateGeneration++;
             BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
 
             if (!m_IsRunning)
@@ -105,6 +153,13 @@ namespace UnityEngine.XR.Simulation
             if(!m_Initialized)
                 return;
 
+            // FDT patch: reset hooks must enumerate replacement objects instead of reusing destroyed references.
+            if (environmentChanged)
+            {
+                Initialize();
+                return;
+            }
+
             if(m_IsRunning)
                 Stop();
 
@@ -122,20 +177,28 @@ namespace UnityEngine.XR.Simulation
         /// </summary>
         async void BeginUpdateLoopAfterDelay()
         {
+            // FDT patch: keep the existing reset grace, scoped to the discovery incarnation that requested it.
+            var generation = m_UpdateGeneration;
             await RunWithoutCancellationExceptions(Task.Delay(m_TrackingUpdateIntervalMilliseconds,
                 CancellationToken.None));
 
-            BeginUpdateLoop();
+            if (generation == m_UpdateGeneration && !m_IsRunning)
+                BeginUpdateLoop();
         }
 
         void Initialize()
         {
+            // FDT patch: replacement enumeration belongs to Reset, after old delivered IDs have been captured.
+            BaseSimulationSceneManager.environmentSetupFinished -= Initialize;
+            // FDT patch: invalidate any pending delayed restart and its old environment value identities.
+            m_UpdateGeneration++;
             if (m_IsRunning)
                 Stop();
 
             m_ImagesInScene.Clear();
             m_TrackingStatesOfImages.Clear();
             m_ReferenceImagesForImages.Clear();
+            m_ImageDeliveries.Clear(); // FDT patch: replacement enumeration fills this retained value buffer.
             m_PreviousLibraryCount = 0;
 
             var origin = Object.FindAnyObjectByType<XROrigin>();
@@ -157,6 +220,8 @@ namespace UnityEngine.XR.Simulation
             if (!simPhysicsScene.IsValid())
                 throw new InvalidOperationException("The physics scene loaded for simulation is not valid.");
 
+            m_EnvironmentScene = simScene; // FDT patch: retain the exact environment incarnation.
+
             m_ImageDiscoveryStrategy = new TrackedImageDiscoveryStrategy(camera, simPhysicsScene);
             var discoveryParams = trackedImageDiscoveryParams ??
                                   XRSimulationRuntimeSettings.Instance.trackedImageDiscoveryParams;
@@ -173,6 +238,7 @@ namespace UnityEngine.XR.Simulation
                 foreach (var image in rootObject.GetComponentsInChildren<SimulatedTrackedImage>())
                 {
                     m_ImagesInScene.Add(image);
+                    m_ImageDeliveries.Add(new ImageDelivery { id = image.trackableId }); // FDT patch: cache value identity.
                     m_TrackingStatesOfImages.Add(TrackingState.None);
                     if (m_SimulationRuntimeImageLibrary != null)
                     {
@@ -244,6 +310,10 @@ namespace UnityEngine.XR.Simulation
         void SubsystemAddImageAtIndex(int imageIndex)
         {
             var image = m_ImagesInScene[imageIndex];
+            // FDT patch: remember an unconsumed add separately from an already delivered image, even after tracking loss.
+            var delivery = m_ImageDeliveries[imageIndex];
+            delivery.pendingAdd = true;
+            m_ImageDeliveries[imageIndex] = delivery;
             m_TrackingStatesOfImages[imageIndex] = TrackingState.Tracking;
             imageAdded?.Invoke(CreateXRImage(image, TrackingState.Tracking, m_ReferenceImagesForImages[imageIndex]));
         }

@@ -1,12 +1,25 @@
 ---
 uid: arfoundation-changelog
 ---
+Authored by GPT-6 at the request of @genereddick.
+- Co-authored by GPT-6. Simulation implementation.
+- Co-authored by GPT-6. Independent review.
+
+FDT patch notes are listed below. The upstream history retains its original authorship.
+
 # Changelog
 
 All notable changes to this package will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+
+## [6.6.2-fdt.1] - 2026-10-26
+
+### Fixed
+
+- FDT patch: rebuild a lost XR Simulation environment before destination startup when an AR session persists across a Single scene load. Preserve session, scanner, native mesh/input, and provider identities. Re-enumerate environment trackables and cancel obsolete delayed mesh/discovery work.
+- FDT patch: add native regressions for repeated Single transitions, destination Start, stopped-session restart, and additive-load preservation. See `FDT_PATCHES.md` for the fork baseline and validation workflow.
 
 ## [6.6.2] - 2026-08-28
 
