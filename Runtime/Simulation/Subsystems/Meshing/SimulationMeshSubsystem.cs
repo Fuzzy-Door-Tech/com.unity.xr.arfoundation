@@ -28,6 +28,19 @@ namespace UnityEngine.XR.Simulation
         readonly List<MeshFilter> k_UnclassifiedMeshFilters = new();
 
         XRMeshSubsystem m_Subsystem;
+        bool m_Started; // FDT patch: session Stop/Start must not duplicate the retained mesh provider's subscriptions.
+
+#if UNITY_EDITOR
+        // FDT patch: coalesce setup/reset and never retain a delayed callback for a destroyed environment.
+        readonly EditorApplication.CallbackFunction m_AddEnvironmentMeshes;
+        GameObject m_PendingEnvironmentRoot;
+        bool m_EnvironmentMeshesPending;
+
+        public SimulationMeshSubsystem()
+        {
+            m_AddEnvironmentMeshes = AddPendingEnvironmentMeshes;
+        }
+#endif
 
         internal static XRMeshSubsystem GetActiveSubsystemInstance()
         {
@@ -51,6 +64,10 @@ namespace UnityEngine.XR.Simulation
         /// </summary>
         public void Start()
         {
+            // FDT patch: this helper survives session stops and already owns these subscriptions after its first start.
+            if (m_Started)
+                return;
+            m_Started = true;
 #if UNITY_EDITOR
             SimulationSubsystemAnalytics.SubsystemStarted(k_SubsystemId);
 #endif
@@ -64,6 +81,13 @@ namespace UnityEngine.XR.Simulation
         /// <inheritdoc/>
         public void Dispose()
         {
+            m_Started = false; // FDT patch: release the single retained subscription lifetime.
+#if UNITY_EDITOR
+            // FDT patch: a provider teardown cancels its one outstanding Editor mesh publication.
+            EditorApplication.delayCall -= m_AddEnvironmentMeshes;
+            m_EnvironmentMeshesPending = false;
+            m_PendingEnvironmentRoot = null;
+#endif
             SimulationSessionSubsystem.s_SimulationSessionReset -= OnSimulationSessionReset;
             BaseSimulationSceneManager.environmentSetupFinished -= OnEnvironmentReady;
 
@@ -148,12 +172,13 @@ namespace UnityEngine.XR.Simulation
 #if UNITY_EDITOR
             if (Application.isPlaying)
             {
-                EditorApplication.delayCall += () =>
+                // FDT patch: setup and the ensuing session reset share one latest-environment publication.
+                m_PendingEnvironmentRoot = environmentRoot;
+                if (!m_EnvironmentMeshesPending)
                 {
-                    var activeSubsystem = GetActiveSubsystemInstance();
-                    if (activeSubsystem is { running: true })
-                        AddMeshes(environmentRoot);
-                };
+                    m_EnvironmentMeshesPending = true;
+                    EditorApplication.delayCall += m_AddEnvironmentMeshes;
+                }
             }
             else
                 AddMeshes(environmentRoot);
@@ -161,6 +186,19 @@ namespace UnityEngine.XR.Simulation
             AddMeshes(environmentRoot);
 #endif
         }
+
+#if UNITY_EDITOR
+        // FDT patch: validate both environment lifetime and native subsystem identity at delayed publication.
+        void AddPendingEnvironmentMeshes()
+        {
+            m_EnvironmentMeshesPending = false;
+            var environmentRoot = m_PendingEnvironmentRoot;
+            m_PendingEnvironmentRoot = null;
+            var activeSubsystem = GetActiveSubsystemInstance();
+            if (environmentRoot != null && activeSubsystem == m_Subsystem && activeSubsystem is { running: true })
+                AddMeshes(environmentRoot);
+        }
+#endif
 
         void AddMeshes(GameObject environmentRoot)
         {
