@@ -15,6 +15,15 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [6.6.2-fdt.3] - 2026-11-01
+
+### Fixed
+
+- FDT patch: unregister never-active trackables explicitly on provider/pending removal and probe-manager teardown. Match the instance so deferred OnDestroy cannot remove a replacement with a reused ID.
+
+- FDT patch: initialize inactive environment-probe dependencies without activating the prefab. Defer owned texture creation until Awake supplies a destruction lifetime.
+- FDT patch: dispose the owned environment texture wrapper on destruction and retain the base trackable cleanup. Reuse the same wrapper if its renderer assignment is cleared.
+
 ## [6.6.2-fdt.2] - 2026-11-01
 
 ### Fixed

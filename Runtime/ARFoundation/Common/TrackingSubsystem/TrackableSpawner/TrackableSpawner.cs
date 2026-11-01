@@ -294,10 +294,12 @@ namespace UnityEngine.XR.ARFoundation
             m_OrphanedEntriesByMissingParentIds.Clear();
         }
 
-        internal void OnTrackableDestroyed(TrackableKey key)
+        // FDT patch: delayed destruction must not unregister a replacement with the same provider ID.
+        internal void OnTrackableDestroyed(TrackableKey key, ARTrackable expectedTrackable)
         {
             if (!m_EntriesByTrackableId.TryGetValue(key.trackableId, out var entryList)
-                || !entryList.TryFindEntryOfType(key.trackableType, out var destroyedEntry))
+                || !entryList.TryFindEntryOfType(key.trackableType, out var destroyedEntry)
+                || !ReferenceEquals(destroyedEntry.trackable, expectedTrackable))
                 return;
 
             if (destroyedEntry.parentKey.HasValue)

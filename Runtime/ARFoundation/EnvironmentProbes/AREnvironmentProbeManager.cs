@@ -191,6 +191,9 @@ namespace UnityEngine.XR.ARFoundation
                 {
                     m_PendingAdds.Remove(probe.trackableId);
                     m_Trackables.Remove(probe.trackableId);
+                    // FDT patch: a pending removal may never be reported by the provider or receive OnDestroy.
+                    TrackableSpawner.instance.OnTrackableDestroyed(
+                        new TrackableKey(probe.trackableId, typeof(AREnvironmentProbe)), probe);
                 }
 
                 probe.pending = false;
@@ -237,9 +240,8 @@ namespace UnityEngine.XR.ARFoundation
             base.OnDestroy();
             foreach (var kvp in m_Trackables)
             {
-                var environmentProbe = kvp.Value;
-                if (environmentProbe != null)
-                    Destroy(environmentProbe.gameObject);
+                // FDT patch: manager teardown also unregisters probes that were never activated.
+                DestroyTrackable(kvp.Key, kvp.Value);
             }
         }
 

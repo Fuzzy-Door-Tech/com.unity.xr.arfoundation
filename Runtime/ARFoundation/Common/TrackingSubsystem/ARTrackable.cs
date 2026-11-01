@@ -46,7 +46,8 @@ namespace UnityEngine.XR.ARFoundation
         /// </remarks>
         protected void OnDestroy()
         {
-            TrackableSpawner.instance.OnTrackableDestroyed(new TrackableKey(trackableId, GetType()));
+            // FDT patch: match this instance, including after provider ID reuse.
+            TrackableSpawner.instance.OnTrackableDestroyed(new TrackableKey(trackableId, GetType()), this);
         }
     }
 

@@ -5,7 +5,7 @@ Authored by GPT-6 at the request of @genereddick.
 
 # FDT AR Foundation patches
 
-This fork starts from the upstream `6.6.2` tag, commit `4f9da2a631b9f868b676a9cf9fa6edf09de7608b`, in the public Unity package mirror. The package version is `6.6.2-fdt.2`. Keep the upstream license and copyright notices.
+This fork starts from the upstream `6.6.2` tag, commit `4f9da2a631b9f868b676a9cf9fa6edf09de7608b`, in the public Unity package mirror. The package version is `6.6.2-fdt.3`. Keep the upstream license and copyright notices.
 
 ## Persistent XR Simulation sessions
 
@@ -41,3 +41,17 @@ The fix adds one virtual callback per added trackable. It adds no collection, cl
 Run `FdtAddedProbeInitializationTests` in a fresh graphics-enabled PlayMode process. The first addition must expose a valid descriptor, custom cubemap, and automatic placement type in the change notification. Idle frames must retain the same wrapper. The ViewScreenMaster companion `XrSimulationProbeScanTests` additionally checks the actual Scan sender, publication, and stop/restart.
 
 Manual registration also sets the provider data before registering the trackable with the spawner. Registering under the initial invalid ID retained the wrong entry and could assert when the next Scan helper was created. This adds one struct assignment before registration; the existing pose/application path remains intact. `FdtManualProbeRegistrationTests` checks two distinct provider identities without a native subsystem.
+
+## Environment probe ownership and inactive prefabs
+
+Review of the first-addition fix found two lifetime gaps. ReflectionProbe dependencies can be initialized before Awake without activating an inactive debug prefab. Such a never-active object does not receive Unity's OnDestroy callback, so it records geometry/placement and defers owned wrapper creation until Awake. Activation applies the retained provider data without requiring another provider update. Already-awakened probes retain their wrapper while disabled.
+
+Destruction disposes the probe's owned updatable texture and calls the base trackable destruction path. It clears the renderer assignment only when it still references that owned texture. Foreign assigned textures are not destroyed. Clearing a renderer assignment no longer creates a second wrapper; ownership remains with the retained updatable texture. Metadata changes still follow the vendor's existing replacement behavior.
+
+These changes add no timer, pooling layer, capture, copy, or recurring allocation. Existing vendor wrapper creation remains an explicit framework boundary. Editor identity/destruction assertions do not establish native ARKit provider retention through asynchronous GPU copies, native-memory peaks, or device frame times.
+
+Run `AddedProbe_InitializesItsTextureBeforeChanged_AndRetainsItWhileIdle` and `InactiveDebugPrefab_PublishesDataWithoutActivation_ThenInitializesOnActivation` in separate fresh graphics-enabled processes. Run `FdtEnvironmentProbeTextureLifetimeTests`, `FdtManualProbeRegistrationTests`, and `TrackableSpawnerTests` with graphics. Repeat with a Null device: rendering cases must explicitly ignore, while registration/spawner cases execute. The lifetime fixture checks owned Unity texture destruction without UnloadUnusedAssets, retained identity after clearing an assignment, and survival of borrowed Unity texture objects. It does not measure native GPU memory or prove native provider leases.
+
+Never-active probes also skip the base trackable destruction callback. Provider removal, pending removal, and probe-manager teardown now release their spawner registrations explicitly. Deferred callbacks match the registered instance so a reused provider ID is safe. Objects explicitly retained with destroyOnRemoval=false keep their existing registration and lifetime. The removal path adds dictionary lookups and value-type keys, with no new collection, delegate, polling, or texture work.
+
+Run `FdtTrackableRemovalTests` with graphics or Null. Its synthetic provider drives the real manager Update/removal path and checks externally destroyed inactive probes, deferred destruction, provider ID reuse, retained objects, and actual environment-probe-manager teardown before any global ResetInstance. The texture lifetime fixture also checks pending removal and reuse before resetting the spawner.

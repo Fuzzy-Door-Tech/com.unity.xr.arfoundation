@@ -26,16 +26,30 @@ namespace UnityEngine.XR.Simulation.Tests
         private int _added;
         private AREnvironmentProbe _first;
         private Texture _texture;
+        private GameObject _inactivePrefab;
+        private bool _inactiveCase;
+        private bool _ownsSceneFactory;
 
         [UnityTest]
         [Explicit("Requires a fresh PlayMode process. Run this fixture alone.")]
-        public IEnumerator AddedProbe_InitializesItsTextureBeforeChanged_AndRetainsItWhileIdle()
+        public IEnumerator AddedProbe_InitializesItsTextureBeforeChanged_AndRetainsItWhileIdle() => Exercise(false);
+
+        [UnityTest]
+        [Explicit("Requires a fresh PlayMode process. Run this method alone.")]
+        public IEnumerator InactiveDebugPrefab_PublishesDataWithoutActivation_ThenInitializesOnActivation() => Exercise(true);
+
+        private IEnumerator Exercise(bool inactive)
         {
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null)
                 Assert.Ignore("XR Simulation renders cubemaps and requires a graphics device.");
             Assert.That(Object.FindAnyObjectByType<ARSession>(FindObjectsInactive.Include), Is.Null,
                 "Run in a fresh PlayMode process without an existing AR rig.");
+            _inactiveCase = inactive;
+            _added = 0;
+            _first = null;
+            _texture = null;
             _previousSceneManagerFactory = SimulationSessionSubsystem.simulationSceneManagerFactory;
+            _ownsSceneFactory = true;
             SimulationSessionSubsystem.simulationSceneManagerFactory = () =>
                 new SimulationTestSceneManager(k_EnvironmentPrefabPath);
             _loader = XRGeneralSettings.Instance.Manager;
@@ -55,12 +69,27 @@ namespace UnityEngine.XR.Simulation.Tests
             _rig.AddComponent<ARInputManager>();
             _probes = _rig.AddComponent<AREnvironmentProbeManager>();
             _probes.automaticPlacementRequested = true;
+            if (inactive)
+            {
+                _inactivePrefab = new GameObject("Inactive probe debug template");
+                _inactivePrefab.SetActive(false);
+                _inactivePrefab.AddComponent<AREnvironmentProbe>();
+                _probes.debugPrefab = _inactivePrefab;
+            }
             _changed = OnChanged;
             _probes.trackablesChanged.AddListener(_changed);
             _rig.SetActive(true);
             var deadline = Time.realtimeSinceStartupAsDouble + 15.0;
             while (_added == 0 && Time.realtimeSinceStartupAsDouble < deadline) yield return null;
             Assert.That(_added, Is.GreaterThan(0));
+            if (inactive)
+            {
+                Assert.That(_first.gameObject.activeSelf, Is.False, "Discovery must not activate the debug template instance.");
+                Assert.That(_first.GetComponent<ReflectionProbe>().customBakedTexture, Is.Null);
+                _first.gameObject.SetActive(true);
+                Assert.That(_first.textureDescriptor.valid, Is.True, "Activation uses retained data without another provider update.");
+                _texture = _first.GetComponent<ReflectionProbe>().customBakedTexture;
+            }
             Assert.That(_texture, Is.Not.Null);
             for (var frame = 0; frame < 5; frame++) yield return null;
             Assert.That(_first.GetComponent<ReflectionProbe>().customBakedTexture, Is.SameAs(_texture));
@@ -72,10 +101,12 @@ namespace UnityEngine.XR.Simulation.Tests
             foreach (var probe in changes.added)
             {
                 _added++;
-                Assert.That(probe.textureDescriptor.valid, Is.True, "The first notification must expose initialized texture data.");
+                Assert.That(probe.textureDescriptor.valid, Is.EqualTo(!_inactiveCase),
+                    "Active probes initialize before notification; inactive probes defer ownership until Awake.");
                 Assert.That(probe.placementType, Is.EqualTo(AREnvironmentProbePlacementType.Automatic));
                 var texture = probe.GetComponent<ReflectionProbe>().customBakedTexture;
-                Assert.That(texture, Is.Not.Null);
+                if (_inactiveCase) Assert.That(texture, Is.Null);
+                else Assert.That(texture, Is.Not.Null);
                 if (_first) continue;
                 _first = probe;
                 _texture = texture;
@@ -87,10 +118,13 @@ namespace UnityEngine.XR.Simulation.Tests
         {
             if (_probes && _changed != null) _probes.trackablesChanged.RemoveListener(_changed);
             if (_rig) Object.Destroy(_rig);
+            if (_inactivePrefab) Object.Destroy(_inactivePrefab);
             yield return null;
             if (_ownsLoader && _loader) _loader.DeinitializeLoader();
             _ownsLoader = false;
-            SimulationSessionSubsystem.simulationSceneManagerFactory = _previousSceneManagerFactory;
+            if (_ownsSceneFactory) SimulationSessionSubsystem.simulationSceneManagerFactory = _previousSceneManagerFactory;
+            _ownsSceneFactory = false;
+            _inactivePrefab = null;
             _previousSceneManagerFactory = null;
             _loader = null;
             _rig = null;

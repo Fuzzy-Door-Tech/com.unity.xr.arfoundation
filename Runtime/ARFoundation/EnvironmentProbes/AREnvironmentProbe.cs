@@ -47,6 +47,10 @@ namespace UnityEngine.XR.ARFoundation
         /// </value>
         XRTextureDescriptor m_CurrentTextureDescriptor;
 
+        // FDT patch: inactive prefabs can receive data before Awake. Texture ownership starts only after Awake.
+        bool m_HasAwoken;
+        bool m_DeferredTextureInitialization;
+
         /// <summary>
         /// The texture info of the custom baked texture from the reflection probe.
         /// </summary>
@@ -107,6 +111,21 @@ namespace UnityEngine.XR.ARFoundation
         /// </summary>
         void Awake()
         {
+            // FDT patch: preserve data prepared for an inactive prefab; do not reset an initialized probe.
+            EnsureReflectionProbeInitialized();
+            m_HasAwoken = true;
+            if (m_DeferredTextureInitialization)
+            {
+                m_DeferredTextureInitialization = false;
+                OnAfterSetSessionRelativeData();
+            }
+        }
+
+        void EnsureReflectionProbeInitialized()
+        {
+            // FDT patch: dependency lookup occurs once, including before an inactive object's Awake.
+            if (m_ReflectionProbe != null)
+                return;
             m_ReflectionProbe = GetComponent<ReflectionProbe>();
 
             // Set the reflection probe mode to use a custom baked texture.
@@ -129,6 +148,8 @@ namespace UnityEngine.XR.ARFoundation
         /// <inheritdoc/>
         protected internal override void OnAfterSetSessionRelativeData()
         {
+            // FDT patch: trackable data can arrive while its debug prefab is inactive.
+            EnsureReflectionProbeInitialized();
             var trackablesParent = GetTrackablesParent();
             if (trackablesParent && transform.parent != trackablesParent)
             {
@@ -156,8 +177,11 @@ namespace UnityEngine.XR.ARFoundation
             }
 
             // Update the environment texture if the environment texture is valid.
-            m_ReflectionProbe.enabled = sessionRelativeData.textureDescriptor.valid;
-            if (sessionRelativeData.textureDescriptor.valid)
+            // FDT patch: Unity does not call OnDestroy on an object that was never active.
+            // Defer owned texture creation until Awake guarantees a destruction callback.
+            m_DeferredTextureInitialization = !m_HasAwoken && sessionRelativeData.textureDescriptor.valid;
+            m_ReflectionProbe.enabled = m_HasAwoken && sessionRelativeData.textureDescriptor.valid;
+            if (m_HasAwoken && sessionRelativeData.textureDescriptor.valid)
             {
                 UpdateEnvironmentTexture(sessionRelativeData.textureDescriptor);
             }
@@ -184,8 +208,10 @@ namespace UnityEngine.XR.ARFoundation
         /// <param name="descriptor">The environment texture data to apply to the reflection probe baked texture.</param>
         void UpdateEnvironmentTexture(XRTextureDescriptor descriptor)
         {
-            if (m_ReflectionProbe.customBakedTexture == null)
+            // FDT patch: the owned wrapper, not the mutable renderer assignment, controls creation.
+            if (m_CustomBakedUpdatableTexture == null || m_CustomBakedUpdatableTexture.texture == null)
             {
+                m_CustomBakedUpdatableTexture?.Dispose();
                 m_CustomBakedUpdatableTexture = UpdatableTextureFactory.Create(descriptor);
             }
             else
@@ -199,6 +225,27 @@ namespace UnityEngine.XR.ARFoundation
 
             // Update the current environment texture metadata.
             m_CurrentTextureDescriptor = descriptor;
+        }
+
+        // FDT patch: release only this probe's wrapper, then notify the spawner through the base lifecycle.
+        protected new void OnDestroy()
+        {
+            try
+            {
+                if (m_CustomBakedUpdatableTexture != null)
+                {
+                    if (m_ReflectionProbe != null &&
+                        m_ReflectionProbe.customBakedTexture == m_CustomBakedUpdatableTexture.texture)
+                        m_ReflectionProbe.customBakedTexture = null;
+                    m_CustomBakedUpdatableTexture.Dispose();
+                    m_CustomBakedUpdatableTexture = null;
+                    m_CurrentTextureDescriptor = default;
+                }
+            }
+            finally
+            {
+                base.OnDestroy();
+            }
         }
 
         /// <summary>
