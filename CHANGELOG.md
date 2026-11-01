@@ -4,6 +4,7 @@ uid: arfoundation-changelog
 Authored by GPT-6 at the request of @genereddick.
 - Co-authored by GPT-6. Simulation implementation.
 - Co-authored by GPT-6. Independent review.
+- Co-authored by GPT-6 (Codex).
 
 FDT patch notes are listed below. The upstream history retains its original authorship.
 
@@ -13,6 +14,14 @@ All notable changes to this package will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
+
+## [6.6.2-fdt.2] - 2026-11-01
+
+### Fixed
+
+- FDT patch: invoke each added trackable's initialization callback before change notification. Static XR Simulation environment probes now initialize their cubemaps without waiting for an update.
+
+- FDT patch: assign provider identity before registering a manually created trackable. Repeated Scan no longer registers helpers under the invalid ID.
 
 ## [6.6.2-fdt.1] - 2026-10-26
 
