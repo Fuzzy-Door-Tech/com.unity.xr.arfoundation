@@ -76,9 +76,18 @@ namespace UnityEngine.XR.ARFoundation.Tests
             Register(probe);
             Assert.That(probe.GetComponent<ReflectionProbe>().customBakedTexture, Is.Null);
             Assert.That(probe.textureDescriptor.valid, Is.False);
-            UnityEngine.Object.Destroy(probe.gameObject);
+            Assert.That(_manager.RemovePending(ProbeId), Is.True);
+            Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId.ContainsKey(ProbeId), Is.False,
+                "Removal must release the registration before ResetInstance or OnDestroy.");
+            var replacement = CreateInactiveProbe();
+            Register(replacement);
             yield return null;
+            Assert.That(probe == null, Is.True);
+            Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId[ProbeId][0].trackable,
+                Is.SameAs(replacement), "Reusing an ID must retain the replacement registration.");
             Assert.That(_source != null, Is.True);
+            Assert.That(_manager.RemovePending(ProbeId), Is.True);
+            Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId.ContainsKey(ProbeId), Is.False);
             LogAssert.NoUnexpectedReceived();
         }
 

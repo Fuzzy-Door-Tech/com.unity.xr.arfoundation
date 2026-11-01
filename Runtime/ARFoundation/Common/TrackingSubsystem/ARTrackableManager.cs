@@ -152,8 +152,11 @@ namespace UnityEngine.XR.ARFoundation
                     {
                         if (m_Trackables.Remove(trackableId, out var trackable))
                         {
+                            // FDT patch: provider removals also retire pending entries and never-active objects.
+                            m_PendingAdds.Remove(trackableId);
                             if (trackable == null)
                             {
+                                DestroyTrackable(trackableId, trackable);
                                 s_RemovedTrackables.Add(new KeyValuePair<TrackableId, TTrackable>(
                                     trackableId, null));
                             }
@@ -188,10 +191,11 @@ namespace UnityEngine.XR.ARFoundation
             finally
             {
                 // Make sure destroy happens even if a user callback throws an exception
-                foreach (var removed in s_Removed)
+                // FDT patch: use the retained ID even if an observer already destroyed an inactive object.
+                foreach (var removed in s_RemovedTrackables)
                 {
-                    if (removed.destroyOnRemoval)
-                        Destroy(removed.gameObject);
+                    if (removed.Value == null || removed.Value.destroyOnRemoval)
+                        DestroyTrackable(removed.Key, removed.Value);
                 }
             }
         }
@@ -285,13 +289,22 @@ namespace UnityEngine.XR.ARFoundation
             {
                 m_Trackables.Remove(trackableId);
 
-                if (trackable.destroyOnRemoval)
-                    Destroy(trackable.gameObject);
+                // FDT patch: never-active trackables receive no Unity OnDestroy callback.
+                if (trackable == null || trackable.destroyOnRemoval)
+                    DestroyTrackable(trackableId, trackable);
 
                 return true;
             }
 
             return false;
+        }
+
+        // FDT patch: explicit removal/teardown owns registration even when Unity skips OnDestroy.
+        protected void DestroyTrackable(TrackableId trackableId, TTrackable trackable)
+        {
+            TrackableSpawner.instance.OnTrackableDestroyed(new TrackableKey(trackableId, typeof(TTrackable)), trackable);
+            if (trackable != null)
+                Destroy(trackable.gameObject);
         }
 
         /// <summary>

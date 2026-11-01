@@ -50,5 +50,12 @@ namespace UnityEngine.XR.ARFoundation.Tests
         protected override void OnEnable() { }
         protected override void OnDisable() { }
         public void AddExisting(AREnvironmentProbe probe, XREnvironmentProbe data) => CreateTrackableFromExisting(probe, data);
+        public bool RemovePending(TrackableId id) => DestroyPendingTrackable(id);
+        public void Poll() => base.Update();
+        public void UseSubsystem(XREnvironmentProbeSubsystem value)
+        {
+            typeof(SubsystemLifecycleManager<XREnvironmentProbeSubsystem, XREnvironmentProbeSubsystemDescriptor,
+                XREnvironmentProbeSubsystem.Provider>).GetProperty("subsystem").SetValue(this, value);
+        }
     }
 }
