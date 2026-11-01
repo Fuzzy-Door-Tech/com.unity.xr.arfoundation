@@ -15,9 +15,12 @@ namespace UnityEngine.XR.Simulation.Tests
 {
     public sealed class FdtAddedProbeInitializationTests
     {
+        private const string k_EnvironmentPrefabPath = "Packages/com.unity.xr.arfoundation/Assets/Prefabs/DefaultSimulationEnvironment.prefab";
+
         private GameObject _rig;
         private XRManagerSettings _loader;
         private bool _ownsLoader;
+        private System.Func<SimulationSceneManager> _previousSceneManagerFactory;
         private AREnvironmentProbeManager _probes;
         private UnityAction<ARTrackablesChangedEventArgs<AREnvironmentProbe>> _changed;
         private int _added;
@@ -32,6 +35,9 @@ namespace UnityEngine.XR.Simulation.Tests
                 Assert.Ignore("XR Simulation renders cubemaps and requires a graphics device.");
             Assert.That(Object.FindAnyObjectByType<ARSession>(FindObjectsInactive.Include), Is.Null,
                 "Run in a fresh PlayMode process without an existing AR rig.");
+            _previousSceneManagerFactory = SimulationSessionSubsystem.simulationSceneManagerFactory;
+            SimulationSessionSubsystem.simulationSceneManagerFactory = () =>
+                new SimulationTestSceneManager(k_EnvironmentPrefabPath);
             _loader = XRGeneralSettings.Instance.Manager;
             Assert.That(_loader, Is.Not.Null);
             _ownsLoader = !_loader.isInitializationComplete;
@@ -84,6 +90,8 @@ namespace UnityEngine.XR.Simulation.Tests
             yield return null;
             if (_ownsLoader && _loader) _loader.DeinitializeLoader();
             _ownsLoader = false;
+            SimulationSessionSubsystem.simulationSceneManagerFactory = _previousSceneManagerFactory;
+            _previousSceneManagerFactory = null;
             _loader = null;
             _rig = null;
         }
