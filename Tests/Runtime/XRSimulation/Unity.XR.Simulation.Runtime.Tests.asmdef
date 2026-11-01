@@ -6,6 +6,7 @@
         "UnityEditor.TestRunner",
         "Unity.InputSystem",
         "Unity.XR.ARSubsystems",
+        "Unity.XR.ARFoundation",
         "Unity.XR.CoreUtils",
         "Unity.XR.Management",
         "Unity.XR.Simulation",
