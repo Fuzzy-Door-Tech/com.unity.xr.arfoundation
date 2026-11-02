@@ -129,6 +129,8 @@ namespace UnityEngine.XR.ARFoundation
                         trackable.pending = false;
                         s_Added.Add(trackable);
                         OnAfterSetSessionRelativeData(trackable, added);
+                        // FDT patch: initialize added trackables, including static environment probe textures.
+                        trackable.OnAfterSetSessionRelativeData();
                     }
                 }
 
@@ -244,6 +246,8 @@ namespace UnityEngine.XR.ARFoundation
         {
             var trackableId = sessionRelativeData.trackableId;
             m_Trackables.Add(trackableId, existingTrackable);
+            // FDT patch: register under the provider ID, not the component's default invalid ID.
+            existingTrackable.SetSessionRelativeData(sessionRelativeData);
             TrackableSpawner.instance.RegisterExistingTrackable(existingTrackable);
             TrackableSpawner.instance.SetSessionRelativeDataAndPose(existingTrackable, sessionRelativeData);
             OnCreateTrackable(existingTrackable);

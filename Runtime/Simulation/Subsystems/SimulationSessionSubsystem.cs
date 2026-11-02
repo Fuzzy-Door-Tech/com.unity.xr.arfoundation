@@ -1,5 +1,9 @@
 using System;
+using Unity.Profiling; // FDT patch: attribute event-driven environment reconstruction without polling or logging.
 using Unity.XR.CoreUtils;
+// FDT patch: observe scene completion without polling or replacing loaded subsystem identities.
+using UnityEngine.Events;
+using UnityEngine.SceneManagement;
 using UnityEngine.XR.ARSubsystems;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -31,12 +35,24 @@ namespace UnityEngine.XR.Simulation
 
         class SimulationProvider : Provider
         {
+            // FDT patch: rebuild work is observable separately from the ordinary session update.
+            static readonly ProfilerMarker k_EnvironmentRebuildMarker = new("XRSimulation.EnvironmentRebuild");
             SimulationMeshSubsystem m_MeshSubsystem;
 
             Camera m_XROriginCamera;
             int m_PreviousCullingMask;
             bool m_Initialized;
             Guid m_SessionId;
+
+            // FDT patch: one callback reservation for this provider's running lifetime.
+            readonly UnityAction<Scene, LoadSceneMode> m_OnSceneLoaded;
+            bool m_ObservingScenes;
+            bool m_RebuildingEnvironment;
+
+            public SimulationProvider()
+            {
+                m_OnSceneLoaded = OnSceneLoaded;
+            }
 
             public override TrackingState trackingState => TrackingState.Tracking;
 
@@ -94,6 +110,10 @@ namespace UnityEngine.XR.Simulation
                 if (!m_Initialized && !Initialize())
                     return;
 
+                // FDT patch: a stopped persistent session can also outlive its environment scene.
+                if (!HasLiveEnvironment())
+                    RebuildEnvironment();
+
                 if (!EnsureXROriginCameraIsSet())
                 {
                     Debug.LogError("Failed to find a valid XROrigin object in the scene for the session.");
@@ -115,6 +135,13 @@ namespace UnityEngine.XR.Simulation
                 m_PreviousCullingMask = m_XROriginCamera.cullingMask;
                 m_XROriginCamera.cullingMask &= ~(1 << XRSimulationRuntimeSettings.Instance.environmentLayer);
 
+                // FDT patch: sceneLoaded runs before scene Start/settings application; keep the same providers alive.
+                if (!m_ObservingScenes)
+                {
+                    SceneManager.sceneLoaded += m_OnSceneLoaded;
+                    m_ObservingScenes = true;
+                }
+
 #if UNITY_EDITOR
                 AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
 #endif
@@ -122,6 +149,8 @@ namespace UnityEngine.XR.Simulation
 
             public override void Stop()
             {
+                // FDT patch: stopped sessions do not rebuild scenes or retain a scene callback.
+                StopObservingScenes();
                 if (m_XROriginCamera)
                     m_XROriginCamera.cullingMask = m_PreviousCullingMask;
 
@@ -139,6 +168,8 @@ namespace UnityEngine.XR.Simulation
 
             public override void Destroy()
             {
+                // FDT patch: Destroy is safe even when Stop did not complete.
+                StopObservingScenes();
                 SimulationCameraPoseProvider.DestroySimulationCameraPoseProvider();
 
                 if (m_MeshSubsystem != null)
@@ -182,6 +213,53 @@ namespace UnityEngine.XR.Simulation
                     simulationCameraPoseProvider.SetSimulationEnvironment(s_SimulationSceneManager
                         .simulationEnvironment);
                 }
+            }
+
+            // FDT patch: rebuild only a missing environment. Native mesh/input, camera, and providers retain identity.
+            static bool HasLiveEnvironment()
+            {
+                if (s_SimulationSceneManager == null)
+                    return false;
+                var scene = s_SimulationSceneManager.environmentScene;
+                return scene.IsValid() && scene.isLoaded && s_SimulationSceneManager.simulationEnvironment != null;
+            }
+
+            void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+            {
+                // FDT patch: Stop can unsubscribe during an earlier listener in this same event dispatch.
+                if (m_ObservingScenes && m_Initialized && !m_RebuildingEnvironment && !HasLiveEnvironment())
+                    RebuildEnvironment();
+            }
+
+            void RebuildEnvironment()
+            {
+                using var marker = k_EnvironmentRebuildMarker.Auto(); // FDT patch: no timer or per-frame work added.
+                m_RebuildingEnvironment = true;
+                try
+                {
+                    var scanner = SimulationEnvironmentScanner.GetOrCreate();
+                    scanner.PrepareForEnvironmentChange();
+                    // Teardown must reset its static initialized flag even if Unity already unloaded the scene.
+                    s_SimulationSceneManager.TearDownEnvironment();
+                    SetupSimulation();
+                    scanner.Initialize(SimulationCameraPoseProvider.GetOrCreateSimulationCameraPoseProvider(),
+                        s_SimulationSceneManager.environmentScene.GetPhysicsScene(),
+                        s_SimulationSceneManager.simulationEnvironment.gameObject);
+                    Reset();
+                    scanner.Start();
+                }
+                finally
+                {
+                    m_RebuildingEnvironment = false;
+                }
+            }
+
+            void StopObservingScenes()
+            {
+                if (!m_ObservingScenes)
+                    return;
+                SceneManager.sceneLoaded -= m_OnSceneLoaded;
+                m_ObservingScenes = false;
             }
 
 #if UNITY_EDITOR

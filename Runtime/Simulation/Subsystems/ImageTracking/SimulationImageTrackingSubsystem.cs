@@ -80,7 +80,11 @@ namespace UnityEngine.XR.Simulation
 #endif
 
                 SimulationEnvironmentScanner.GetOrCreate().EnsureMeshColliders();
-                m_Discoverer.Start();
+                // FDT patch: a stopped consumer can miss the reset event while its environment is replaced.
+                if (m_Discoverer.environmentChanged)
+                    OnSimulationSessionReset();
+                else
+                    m_Discoverer.Start();
 
                 SimulationSessionSubsystem.s_SimulationSessionReset += OnSimulationSessionReset;
             }
@@ -90,8 +94,9 @@ namespace UnityEngine.XR.Simulation
             {
                 SimulationSessionSubsystem.s_SimulationSessionReset -= OnSimulationSessionReset;
                 m_Discoverer.Stop();
+                m_Discoverer.FinishPendingImageAdditions(false); // FDT patch: discarded additions never became consumer-owned.
                 m_NumAdded = 0;
-                m_NumRemoved = 0;
+                // FDT patch: retain replacement removals until GetChanges delivers them, including across Stop/Start.
             }
 
             public override void Destroy() { }
@@ -101,11 +106,21 @@ namespace UnityEngine.XR.Simulation
                 if (!isInitialized)
                     return;
 
+                // FDT patch: preserve delivered old identities as removals before replacement enumeration clears buffers.
+                if (m_Discoverer.environmentChanged)
+                {
+                    var capacity = m_NumRemoved + m_Added.Length;
+                    if (m_Removed.Length < capacity)
+                        Array.Resize(ref m_Removed, capacity);
+                    m_NumRemoved = m_Discoverer.CopyDeliveredImageIds(m_Removed, m_NumRemoved);
+                }
+
                 ValidateChanges();
 
                 m_NumAdded = 0;
                 Array.Clear(m_Added, 0, m_Added.Length);
                 m_Updated.Clear();
+                m_Discoverer.FinishPendingImageAdditions(false); // FDT patch: reset discards pending additions, not delivered IDs.
 
                 m_Discoverer.Restart();
             }
@@ -130,6 +145,7 @@ namespace UnityEngine.XR.Simulation
                 if (m_NumAdded > 0)
                 {
                     NativeArray<XRTrackedImage>.Copy(m_Added, 0, changes.added, 0, m_NumAdded);
+                    m_Discoverer.FinishPendingImageAdditions(true); // FDT patch: this is the actual delivery boundary.
                     m_NumAdded = 0;
                 }
 
@@ -174,8 +190,11 @@ namespace UnityEngine.XR.Simulation
                 m_NumAdded = 0;
                 m_Updated = new Dictionary<TrackableId, XRTrackedImage>(numImages);
                 m_UpdatedCopyBuffer = new XRTrackedImage[numImages];
-                m_Removed = new TrackableId[numImages];
-                m_NumRemoved = 0;
+                // FDT patch: a new environment may arrive before old removals have reached the persistent AR manager.
+                if (m_Removed == null)
+                    m_Removed = new TrackableId[numImages];
+                else if (m_Removed.Length < numImages)
+                    Array.Resize(ref m_Removed, numImages);
             }
 
             void OnImageAdded(XRTrackedImage image)
