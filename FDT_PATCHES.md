@@ -5,7 +5,7 @@ Authored by GPT-6 at the request of @genereddick.
 
 # FDT AR Foundation patches
 
-This fork starts from the upstream `6.6.2` tag, commit `4f9da2a631b9f868b676a9cf9fa6edf09de7608b`, in the public Unity package mirror. The package version is `6.6.2-fdt.3`. Keep the upstream license and copyright notices.
+This fork starts from the upstream `6.6.2` tag, commit `4f9da2a631b9f868b676a9cf9fa6edf09de7608b`, in the public Unity package mirror. The package version is `6.6.2-fdt.4`. Keep the upstream license and copyright notices.
 
 ## Persistent XR Simulation sessions
 
@@ -55,3 +55,11 @@ Run `AddedProbe_InitializesItsTextureBeforeChanged_AndRetainsItWhileIdle` and `I
 Never-active probes also skip the base trackable destruction callback. Provider removal, pending removal, and probe-manager teardown now release their spawner registrations explicitly. Deferred callbacks match the registered instance so a reused provider ID is safe. Objects explicitly retained with destroyOnRemoval=false keep their existing registration and lifetime. The removal path adds dictionary lookups and value-type keys, with no new collection, delegate, polling, or texture work.
 
 Run `FdtTrackableRemovalTests` with graphics or Null. Its synthetic provider drives the real manager Update/removal path and checks externally destroyed inactive probes, deferred destruction, provider ID reuse, retained objects, and actual environment-probe-manager teardown before any global ResetInstance. The texture lifetime fixture also checks pending removal and reuse before resetting the spawner.
+
+## Continuing updates after external destruction
+
+The manager and spawner can retain a destroyed trackable while the provider continues reporting its ID. Never-active objects skip Unity's OnDestroy callback. A provider update previously accessed the destroyed component's transform through SetSessionRelativeDataAndPose.
+
+The manager now replaces a destroyed cached instance and clears its pending-add record. The spawner retires the exact stale registration before recreating the component under the provider ID. Live instances keep the existing update path. This adds liveness checks and reuses the existing creation path; it adds no timer, collection, delegate, or allocation on healthy updates. Recreating an externally destroyed object necessarily uses the existing GameObject and component allocation path.
+
+Run FdtTrackableRemovalTests in PlayMode. The synthetic provider reproduces the old exception after destroying a never-active probe, then verifies a live replacement, its applied pose, one spawner registration, and subsequent provider removal. The fixture also covers an externally destroyed active probe. The regression reproduces the reported call chain; the device report does not identify the trackable subtype, so ARKit device verification remains required.

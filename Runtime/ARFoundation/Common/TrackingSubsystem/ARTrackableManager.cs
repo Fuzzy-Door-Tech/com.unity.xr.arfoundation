@@ -219,9 +219,11 @@ namespace UnityEngine.XR.ARFoundation
         TTrackable CreateOrUpdateTrackable(TSessionRelativeData sessionRelativeData)
         {
             var trackableId = sessionRelativeData.trackableId;
-            if (m_Trackables.TryGetValue(trackableId, out var trackable))
+            // FDT patch: destroyed Unity objects can remain in the manager until provider removal.
+            // A continuing update must recreate the component instead of accessing its dead transform.
+            m_PendingAdds.Remove(trackableId);
+            if (m_Trackables.TryGetValue(trackableId, out var trackable) && trackable != null)
             {
-                m_PendingAdds.Remove(trackableId);
                 trackable.pending = false;
                 TrackableSpawner.instance.SetSessionRelativeDataAndPose(trackable, sessionRelativeData);
             }
@@ -230,7 +232,7 @@ namespace UnityEngine.XR.ARFoundation
                 trackable = TrackableSpawner.instance.CreateOrUpdateTrackable<TTrackable, TSessionRelativeData>
                     (sessionRelativeData, GetPrefab(), gameObjectName);
 
-                m_Trackables.Add(sessionRelativeData.trackableId, trackable);
+                m_Trackables[trackableId] = trackable; // FDT patch: replace a destroyed cached instance.
                 OnCreateTrackable(trackable);
             }
 
