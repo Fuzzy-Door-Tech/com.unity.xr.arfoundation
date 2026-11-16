@@ -46,6 +46,7 @@ namespace UnityEngine.XR.ARFoundation.Tests
             Assert.That(_subsystem, Is.Not.Null);
             RemovalProvider.RemoveNext = false;
             RemovalProvider.AddNext = false;
+            RemovalProvider.UpdateNext = false;
             _subsystem.Start();
             _manager.UseSubsystem(_subsystem);
         }
@@ -63,6 +64,37 @@ namespace UnityEngine.XR.ARFoundation.Tests
             AssertUnregistered();
             var replacement = Register(false);
             Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId[ProbeId][0].trackable, Is.SameAs(replacement));
+        }
+
+        [UnityTest]
+        public IEnumerator ProviderUpdate_ReplacesAnExternallyDestroyedNeverActiveProbe()
+        {
+            yield return UpdateDestroyedProbe(false);
+        }
+
+        [UnityTest]
+        public IEnumerator ProviderUpdate_ReplacesAnExternallyDestroyedActiveProbe()
+        {
+            yield return UpdateDestroyedProbe(true);
+        }
+
+        private IEnumerator UpdateDestroyedProbe(bool active)
+        {
+            var probe = Register(active);
+            UnityEngine.Object.Destroy(probe.gameObject);
+            yield return null;
+            Assert.That(probe == null, Is.True);
+            RemovalProvider.UpdateNext = true;
+            _manager.Poll();
+            var replacement = _manager.trackables[ProbeId];
+            Assert.That(replacement != null, Is.True);
+            Assert.That(replacement, Is.Not.SameAs(probe));
+            Assert.That(replacement.transform.position, Is.EqualTo(new Vector3(1, 2, 3)));
+            Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId[ProbeId].Count, Is.EqualTo(1));
+            Assert.That(TrackableSpawner.instance.m_EntriesByTrackableId[ProbeId][0].trackable, Is.SameAs(replacement));
+            RemoveFromProvider();
+            yield return null;
+            AssertUnregistered();
         }
 
         [UnityTest]
@@ -168,6 +200,7 @@ namespace UnityEngine.XR.ARFoundation.Tests
             _ownsSpawner = false;
             RemovalProvider.RemoveNext = false;
             RemovalProvider.AddNext = false;
+            RemovalProvider.UpdateNext = false;
             _root = null;
             _manager = null;
         }
@@ -178,18 +211,27 @@ namespace UnityEngine.XR.ARFoundation.Tests
         {
             public static bool RemoveNext;
             public static bool AddNext;
+            public static bool UpdateNext;
             public override void Start() { }
             public override void Stop() { }
             public override void Destroy() { }
             public override TrackableChanges<XREnvironmentProbe> GetChanges(XREnvironmentProbe defaultProbe, Allocator allocator)
             {
-                var changes = new TrackableChanges<XREnvironmentProbe>(AddNext ? 1 : 0, 0, RemoveNext ? 1 : 0, allocator);
+                var changes = new TrackableChanges<XREnvironmentProbe>(AddNext ? 1 : 0, UpdateNext ? 1 : 0, RemoveNext ? 1 : 0, allocator);
                 if (AddNext)
                 {
                     var added = changes.added;
                     added[0] = Data;
                 }
                 AddNext = false;
+                if (UpdateNext)
+                {
+                    var updated = changes.updated;
+                    updated[0] = new XREnvironmentProbe(ProbeId, Vector3.one,
+                        new Pose(new Vector3(1, 2, 3), Quaternion.identity), Vector3.one,
+                        default, TrackingState.Tracking, IntPtr.Zero);
+                }
+                UpdateNext = false;
                 if (RemoveNext)
                 {
                     var removed = changes.removed;

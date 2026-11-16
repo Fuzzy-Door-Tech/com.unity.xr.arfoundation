@@ -115,8 +115,15 @@ namespace UnityEngine.XR.ARFoundation
                 && entryList.TryFindEntryOfType(typeof(TTrackable), out var existingEntry))
             {
                 var typedTrackable = existingEntry.trackable as TTrackable;
-                SetSessionRelativeDataAndPose(typedTrackable, sessionRelativeData);
-                return typedTrackable;
+                // FDT patch: never-active objects skip OnDestroy, leaving a stale registration.
+                // Retire that exact instance before reusing the provider ID.
+                if (typedTrackable != null)
+                {
+                    SetSessionRelativeDataAndPose(typedTrackable, sessionRelativeData);
+                    return typedTrackable;
+                }
+                OnTrackableDestroyed(new TrackableKey(sessionRelativeData.trackableId, typeof(TTrackable)),
+                    existingEntry.trackable);
             }
 
             TTrackable trackable;

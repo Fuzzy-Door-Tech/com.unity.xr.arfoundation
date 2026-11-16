@@ -15,6 +15,12 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [6.6.2-fdt.4] - 2026-11-16
+
+### Fixed
+
+- FDT patch: replace externally destroyed trackables when their provider continues reporting updates. Retire stale spawner registrations before reusing the provider ID, including never-active probes that do not receive OnDestroy.
+
 ## [6.6.2-fdt.3] - 2026-11-01
 
 ### Fixed
